@@ -1,4 +1,5 @@
 import numpy as np
+import lap
 from collections import deque
 
 class ByteTracker:
@@ -37,34 +38,12 @@ class ByteTracker:
         if cost_matrix.size == 0:
             return np.empty((0, 2), dtype=int), tuple(range(cost_matrix.shape[0])), tuple(range(cost_matrix.shape[1]))
         
-        try:
-            import lap
-            _, x, y = lap.lapjv(cost_matrix, extend_cost=True, cost_limit=1e10)
-            matches = [[i, j] for i, j in zip(x, y) if i >= 0 and j >= 0]
-            unmatched_a = [i for i, j in enumerate(x) if j < 0]
-            unmatched_b = [i for i, j in enumerate(y) if j < 0]
-            return matches, unmatched_a, unmatched_b
-        except ImportError:
-            matches = []
-            unmatched_a = list(range(cost_matrix.shape[0]))
-            unmatched_b = list(range(cost_matrix.shape[1]))
-            
-            for i in range(cost_matrix.shape[0]):
-                if i not in [m[0] for m in matches]:
-                    best_j = -1
-                    best_iou = self.match_thresh
-                    for j in range(cost_matrix.shape[1]):
-                        if j not in [m[1] for m in matches]:
-                            iou = 1 - cost_matrix[i, j]
-                            if iou > best_iou:
-                                best_iou = iou
-                                best_j = j
-                    if best_j != -1:
-                        matches.append([i, best_j])
-                        unmatched_a.remove(i)
-                        unmatched_b.remove(best_j)
-            
-            return matches, unmatched_a, unmatched_b
+        _, row_assignments, col_assignments = lap.lapjv(cost_matrix, extend_cost=True, cost_limit=1e10)
+        matches = [[row_idx, col_idx] for row_idx, col_idx in enumerate(row_assignments) if col_idx >= 0]
+        unmatched_rows = [row_idx for row_idx, col_idx in enumerate(row_assignments) if col_idx < 0]
+        unmatched_cols = [col_idx for col_idx, row_idx in enumerate(col_assignments) if row_idx < 0]
+        
+        return matches, unmatched_rows, unmatched_cols
     
     def update(self, detections):
         self.frame_id += 1
@@ -93,6 +72,9 @@ class ByteTracker:
                 self.tracked_tracks[track_idx]['bbox'] = detections[det_idx]['bbox']
                 self.tracked_tracks[track_idx]['lost'] = 0
                 self.tracked_tracks[track_idx]['landmarks'] = detections[det_idx].get('landmarks', None)
+                self.tracked_tracks[track_idx]['source'] = detections[det_idx].get('source', 'camera')
+                self.tracked_tracks[track_idx]['offset'] = detections[det_idx].get('offset', (0, 0))
+                self.tracked_tracks[track_idx]['image_shape'] = detections[det_idx].get('image_shape')
         else:
             unmatched_tracks = list(range(len(tracked_boxes)))
             unmatched_dets = list(range(len(det_boxes)))
@@ -105,7 +87,10 @@ class ByteTracker:
                 'id': self.next_id,
                 'bbox': detections[i]['bbox'],
                 'lost': 0,
-                'landmarks': detections[i].get('landmarks', None)
+                'landmarks': detections[i].get('landmarks', None),
+                'source': detections[i].get('source', 'camera'),
+                'offset': detections[i].get('offset', (0, 0)),
+                'image_shape': detections[i].get('image_shape')
             }
             self.next_id += 1
             self.tracked_tracks.append(new_track)
@@ -117,4 +102,3 @@ class ByteTracker:
             track['id'] = idx
         
         return self.tracked_tracks
-

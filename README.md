@@ -1,56 +1,14 @@
 # Eye Tracking Application
 
-Ứng dụng theo dõi vị trí lòng đen (iris) của mắt sử dụng MediaPipe và ByteTrack.
+## 1. `tracking_utils.py`
+- Mô hình sử dụng: **MediaPipe Face Mesh** ở chế độ streaming (`static_image_mode=False`, `refine_landmarks=True`) để tính full 468 landmarks và tâm iris (indices 468–477); OpenCV lo phần hậu kỳ (bbox, mesh, vẽ).
+- Vai trò: chuẩn bị dữ liệu cho từng khung hình – `get_detections` trả về bbox + landmarks + offset (camera/PNG), `draw_track_on` vẽ mesh/bounding box/iris, nhưng **chưa** gán ID theo thời gian.
 
-### 1. MediaPipe FaceMesh
+## 2. `bytetrack.py`
+- Thuật toán theo dõi: **ByteTrack**. Trong `ByteTracker.update`, xây ma trận chi phí `1 - IoU`, giải gán tối ưu bằng `lap.lapjv`, cập nhật `bbox/landmarks/source/offset/image_shape` và bộ đếm `lost` của từng track.
+- Nhiệm vụ: duy trì ID ổn định cho mỗi khuôn mặt–một cặp mắt qua các khung hình; detection mới → track mới, track mất quá `track_buffer=30` khung hình sẽ bị loại bỏ.
 
-Sử dụng `mp.solutions.face_mesh.FaceMesh` với `static_image_mode=False` để xử lý luồng video liên tục.
-
-Trích xuất các vùng mắt và mống mắt thông qua tập chỉ số landmark:
-
-- Mắt trái: `LEFT_EYE = [33, 7, 163, 144, ..., 246]`
-- Mắt phải: `RIGHT_EYE = [362, 382, ..., 398]`
-- Mống mắt (iris): `LEFT_IRIS = [468-472]`, `RIGHT_IRIS = [473-477]`
-
-Từ các điểm này tính bounding box và trung tâm iris theo công thức trung bình tọa độ.
-
-### 2. ByteTrack Tracking
-
-Mỗi mắt được coi là một detection box: `[x1, y1, x2, y2, score]`.
-
-ByteTrack chia detection thành hai nhóm:
-
-- High score (≥0.6): tin cậy, ưu tiên match
-- Low score (<0.6): dùng để khôi phục track tạm mất
-
-Sử dụng IoU matching (Hungarian hoặc greedy) với ngưỡng `match_thresh=0.5`.
-
-Mỗi track được quản lý bởi `KalmanTracker`, lưu trạng thái `[cx, cy, s, r]` (tâm, diện tích, tỉ lệ).
-
-Khi không có detection mới, Kalman dự đoán vị trí kế tiếp để duy trì ID.
-
-Track được giữ tối đa `track_buffer=30` frame trước khi loại bỏ.
-
-
-## 
-
-| Trường hợp kiểm thử | Kết quả |
-|---------------------|---------|
-| Một người, một khuôn mặt | Hai mắt được phát hiện, mỗi mắt có Track ID riêng |
-| Nhiều người (2-3) | Tất cả mắt được gán ID riêng, hoạt động song song |
-| Di chuyển đầu nhẹ | Track ID giữ ổn định |
-| Di chuyển nhanh | ID có thể thay đổi do IoU giảm |
-| Che mắt 1-2 giây | Track bị "lost" tạm thời, khôi phục khi mắt xuất hiện lại |
-| Focus mode | Hoạt động đúng, hiển thị riêng mắt được chọn |
-
-## 
-
-| Tiêu chí | Kết quả |
-|----------|---------|
-| Phát hiện nhiều mắt | Đạt |
-| Vị trí lòng đen | Đạt |
-| MediaPipe Stream Mode | Đạt |
-| ByteTrack | Đạt |
-| Real-time | Đạt |
-| Ổn định tracking | Khá |
-
+```powershell
+.\venv\Scripts\activate
+python eye.py
+```
